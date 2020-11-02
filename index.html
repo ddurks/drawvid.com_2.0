@@ -4,76 +4,102 @@
 		<meta charset="utf-8">
     <title>drawvid.com</title>
     <style>
-      body {
-        padding: 0;
-        background-color:#006bff;
+      html, body {
+        width:  100%;
+        height: 100%;
+        margin: 0;
+        background-color: #fff;
+        background-image:
+        linear-gradient(90deg, transparent 79px, #abced4 79px, #abced4 81px, transparent 81px),
+        linear-gradient(#eee .1em, transparent .1em);
+        background-size: 100% 1.2em;
       }
-      canvas {
-        display: block;
-        margin:0;
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background-color: blanchedalmond;
-        z-index: 0;
+      #canvas-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
       }
-      .standardButton {
-        z-index: 2147483647;
+      #drawvidWorld-canvas {
         position: absolute;
-        background: #7C7C7C;
-        border-bottom: 6px inset rgba(0,0,0,.5);
-        border-left: 6px inset rgba(0,0,0,.5);
-        border-right: 6px inset rgba(255,255,255,.5);
-        border-top: 6px inset rgba(255,255,255,.5);
-        box-sizing: border-box;
-        color: white;
-        cursor: pointer;
-        display: block;
-        font-size: 1rem;
+        z-index: 1;
+      }
+      .scrolling-text {
+        color: whitesmoke;
+        background-color: black;
+        background-image: radial-gradient(
+          rgba(0, 150, 0, 0.75), black 120%
+        );
+        font: 1.5rem monospace;
+        width: 100%;
+        padding: 4px 5px 3px 5px;
+        text-shadow: 0 0 5px #C8C8C8;
         margin: auto;
-        padding: .5rem;
-        width: auto;
       }
-      button.standardButton {
-        top: 75%;
-        left: 52%;
-      }
-      input.standardButton {
-        background: rgb(197, 197, 197);
-        color: black;
-        top: 75%;
-        left: 43%;
+      #image-container {
+        position: relative;
+        height: 75%;
+        width: 50%;
+        margin: auto;
+        z-index: 2;
+        overflow-y: scroll;
       }
     </style>
+    <link rel='icon', href='/assets/favicon.ico'>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.766.0.min.js"></script>
+    <script>
+      // **DO THIS**:
+      //   Replace BUCKET_NAME with the bucket name.
+      //
+      var albumBucketName = 'drawvid-art';
+
+      // **DO THIS**:
+      //   Replace this block of code with the sample code located at:
+      //   Cognito -- Manage Identity Pools -- [identity_pool_name] -- Sample Code -- JavaScript
+      //
+      // Initialize the Amazon Cognito credentials provider
+      AWS.config.region = 'ca-central-1'; // Region
+      AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+          IdentityPoolId: 'ca-central-1:3576ba6e-65ef-45a6-b3e8-1aad09b685c3',
+      });
+
+      // Create a new service object
+      var s3 = new AWS.S3({
+        apiVersion: '2006-03-01',
+        params: {Bucket: albumBucketName}
+      });
+
+      // A utility function to create HTML.
+      function getHtml(template) {
+        return template.join('\n');
+      }
+    </script>
   </head>
   <body>
+    <div id="canvas-container">
+      <canvas id="drawvidWorld-canvas"></canvas>
+      <div id="overlay-container">
+        <div class='scrolling-text'>
+          <marquee id="marquee" scrolldelay="0" scrollamount="10">
+            welcome to drawvid.com!
+          </marquee>
+          </div>
+        </div>
+        <div id="image-container"></div>
+    </div>
     <script>
-      var CANVAS_WIDTH = 512;
-      var CANVAS_HEIGHT = 512;
       var WINDOW_WIDTH = window.innerWidth;
       var WINDOW_HEIGHT = window.innerHeight;
-      var DOCUMENT = document;
+      const PLAYER_SIZE = 128;
+      const SCALE = 1;
+      const PLAYER_SCALED_SIZE = PLAYER_SIZE*SCALE;
       const RENDER_DELAY = 0.005;
-      const ANIMATION_DELAY = 0.15;
+      const ANIMATION_DELAY = 0.10;
       const MARCH_DELAY = 0.75;
-      const PLAYER_SPEED = 150;
-      const PLAYER_ACTION = {
-        sit: -1,
-        right: 0,
-        down: 1,
-        left: 2,
-        up: 3
-      }
-      const KEY_CODES = {
-        w: 87,
-        a: 65,
-        s: 83,
-        d: 68,
-        space: 32,
-        arrowleft: 37,
-        arrowright: 39
-      }
+      const PLAYER_SPEED = 400;
+      const BOT_SPEED = PLAYER_SPEED/2;
+      const PLAYER_ACTION = {right: 1, down: 0, left: 3, up: 2}
+      const KEY_CODES = {w: 87,a: 65,s: 83,d: 68,space: 32,arrowleft: 37,arrowright: 39}
+      const PAGE_NAME = { home: "home", about: "about", code: "code", art: "art"}
 
       var IS_MOBILE;
       if(/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|ipad|iris|kindle|Android|Silk|lge |maemo|midp|mmp|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows (ce|phone)|xda|xiino/i.test(navigator.userAgent) 
@@ -82,7 +108,6 @@
       } else {
         IS_MOBILE = false;
       }
-      //console.log("is mobile: ", IS_MOBILE);
       var supportsPassive = false;
       try {
         window.addEventListener("test", null, Object.defineProperty({}, 'passive', {
@@ -98,16 +123,16 @@
       }
 
       const Utility = {
-        resize: function() {
+        resize: function(ctx) {
           var canvas = document.getElementById("drawvidWorld-canvas");
           var windowWidth = window.innerWidth;
           var windowHeight = window.innerHeight;
-          CANVAS_WIDTH = windowWidth;
-          CANVAS_HEIGHT = windowWidth;
           WINDOW_WIDTH = windowWidth;
           WINDOW_HEIGHT = windowHeight;
+          canvas.width = WINDOW_WIDTH;
+          canvas.height = WINDOW_HEIGHT;
           var windowRatio = windowWidth / windowHeight;
-          var gameRatio = CANVAS_WIDTH / CANVAS_HEIGHT;
+          var gameRatio = WINDOW_WIDTH / WINDOW_HEIGHT;
           if(windowRatio < gameRatio){
               canvas.style.width = windowWidth + "px";
               canvas.style.height = (windowWidth / gameRatio) + "px";
@@ -136,10 +161,10 @@
       };
 
       const Entity = {
-        create: function(x_position, y_position, action, vx, vy) {
+        create: function(xPos, yPos, action, vx, vy) {
           var entity = Object.create(this);
-          entity.x = x_position;
-          entity.y = y_position;
+          entity.x = xPos;
+          entity.y = yPos;
           entity.action = action;
           entity.vx = vx;
           entity.vy = vy;
@@ -147,79 +172,74 @@
         }
       }
 
-      const Player = {
-        height: 64,
-        width: 64,
-        left_boundary: 0,
-        right_boundary: CANVAS_WIDTH,
-        dead: false,
+      const Computer = {
+        height: 128,
+        width: 128,
 
-        create: function(x_position, y_position, action) {
+        create: function(xPos, yPos) {
+          var computer = Object.create(this);
+          computer.state = Entity.create(xPos, yPos, 0, 0, 0);
+          return computer;
+        }
+      }
+
+      const Player = {
+        height: PLAYER_SIZE,
+        width: PLAYER_SIZE,
+
+        create: function(xPos, yPos, action) {
           var player = Object.create(this);
-          player.state = Entity.create(x_position, y_position, action, 0, 0);
+          player.state = Entity.create(xPos, yPos, action, 0, 0);
           player.frame = 0;
           return player;
         },
 
+        setSpeeds(vx, vy) {
+          this.setSpeedX(vx);
+          this.setSpeedY(vy);
+        },
+
         setSpeedX: function(vx) {
-          console.log("set speed X");
-          if (vx > PLAYER_SPEED/5) {
+          if (vx > 0) {
             this.state.action = PLAYER_ACTION.right;
             this.state.vx = vx;
-          } else if (vx < -PLAYER_SPEED/5) {
+            this.idle = false;
+          } else if (vx < -0) {
             this.state.action = PLAYER_ACTION.left;
             this.state.vx = vx;
+            this.idle = false;
           }
         },
 
         setSpeedY: function(vy) {
-          if (vy > PLAYER_SPEED/5) {
+          if (vy > 0) {
             this.state.action = PLAYER_ACTION.down;
             this.state.vy = vy;
-          } else if (vy < -PLAYER_SPEED/5) {
+            this.idle = false;
+          } else if (vy < 0) {
             this.state.action = PLAYER_ACTION.up;
             this.state.vy = vy;
+            this.idle = false;
           }
         },
 
-        idle: function() {
-          this.state.action = PLAYER_ACTION.sit;
+        chill: function() {
+          this.idle = true;
           this.state.vy = 0;
           this.state.vx = 0;
           this.frame = 0;
         },
 
-        updatePlayer(deltat) {
-          if (this.state.x >= 0 && this.state.x <= CANVAS_WIDTH-this.width-1) {
-            this.updatePosition(deltat);
-          } else {
-            if (this.state.x < 0) {
-              this.state.x = 0;
-            } else if (this.state.x > CANVAS_WIDTH) {
-              this.state.x = 511;
-            }
-          }
-        },
-
-        updateAuto(deltat) {
-          if (this.state.x + this.state.vx * deltat >= this.left_boundary && this.state.x <= this.right_boundary-this.width) {
-            this.updatePosition(deltat);
-          } else {
-            if (this.state.x < 0) {
-              this.state.x = 0;
-            } else if (this.state.x > this.right_boundary-this.width) {
-              this.state.x = this.right_boundary - this.width;
-            }
-            this.setSpeedX(this.state.vx * -1);
-            this.setSpeedY(this.state.vy * -1);
-            this.updatePosition(deltat);
-          }
+        update({x, y}) {
+          this.state.x = x;
+          this.state.y = y;
         },
 
         updatePosition: function(deltat) {
-          console.log(this.state.vx, this.state.vy);
-          this.state.x = this.state.x + this.state.vx * deltat;
-          this.state.y = this.state.y + this.state.vy * deltat;
+          return {
+            x: this.state.x + this.state.vx * deltat,
+            y: this.state.y + this.state.vy * deltat
+          }
         },
 
         cycleAnimationFrame: function() {
@@ -234,102 +254,191 @@
       const DrawvidWorld = {
         player: null,
         players: new Array(),
+        computers: {},
+        line: new Array(),
 
         create: function() {
           var drawvidWorld = Object.create(this);
-          drawvidWorld.bg = Entity.create(0, 0, 0, 0, 0);
-          drawvidWorld.player = Player.create(Utility.getRandomInt(0, CANVAS_WIDTH), Utility.getRandomInt(0, CANVAS_HEIGHT), -1);
-          drawvidWorld.game_over = false;
+          // drawvidWorld.player = Player.create(2*WINDOW_WIDTH/3,2*WINDOW_HEIGHT/3, 0);
+          drawvidWorld.player = Player.create(10,200, 0);
+          drawvidWorld.player.player1 = true;
+          drawvidWorld.player.chill();
+          drawvidWorld.gameOver = false;
+          drawvidWorld.computers[PAGE_NAME.home] = Computer.create((WINDOW_WIDTH/6), WINDOW_HEIGHT/6);
+          drawvidWorld.computers[PAGE_NAME.about] = Computer.create(2*(WINDOW_WIDTH/6), WINDOW_HEIGHT/6);
+          drawvidWorld.computers[PAGE_NAME.art] = Computer.create(3*(WINDOW_WIDTH/6), WINDOW_HEIGHT/6);
+          drawvidWorld.computers[PAGE_NAME.code] = Computer.create(4*(WINDOW_WIDTH/6), WINDOW_HEIGHT/6);
           return drawvidWorld;
+        },
+
+        updatePlayer(player, deltat) {
+          var newPos = player.updatePosition(deltat);
+          var collision = player.player1 ? this.isComputerCollision(newPos) : null;
+          if (this.playerCanMoveHere(newPos) && !collision) {
+            player.update(newPos);
+          } else if (collision) {
+            this.currentScreen = collision;
+          }
+        },
+
+        updateBot(player, deltat) {
+          var newPos = this.simulateBot(player, deltat);
+          var collision = player.player1 ? this.isComputerCollision(newPos) : null;
+          if (this.playerCanMoveHere(newPos)) {
+            player.update(newPos);
+            player.line.push(newPos);
+          }
+        },
+
+        simulateBot(player, deltat) {
+          var newSpeedX = player.state.vx + Utility.getRandomInt(player.state.vx > 0 ? -BOT_SPEED/2 : -BOT_SPEED, player.state.vx < 0 ? BOT_SPEED/2 : BOT_SPEED);
+          var newSpeedY = player.state.vy + Utility.getRandomInt(player.state.vy > 0 ? -BOT_SPEED/2 : -BOT_SPEED, player.state.vy < 0 ? BOT_SPEED/2 : BOT_SPEED);
+          player.setSpeeds(newSpeedX <= BOT_SPEED && newSpeedX >= -BOT_SPEED ? newSpeedX : player.state.vx, newSpeedY <= BOT_SPEED && newSpeedY >= -BOT_SPEED ? newSpeedY : player.state.vy);
+          return player.updatePosition(deltat);
         },
 
         updateAllPlayers: function(deltat) {
           if(this.player != null) {
-            this.player.updatePlayer(deltat);
+            if (this.player.state.x >= WINDOW_WIDTH - PLAYER_SCALED_SIZE) this.player.state.x = WINDOW_WIDTH - PLAYER_SCALED_SIZE;
+            if (this.player.state.y >= WINDOW_HEIGHT - PLAYER_SCALED_SIZE) this.player.state.y = WINDOW_HEIGHT - PLAYER_SCALED_SIZE;
+            this.updatePlayer(this.player, deltat);
           }
-          this.players.forEach(function(player){
-            player.updateAuto(deltat);
+          this.players.forEach(function(player, index, players){
+            if (player.state.x >= WINDOW_WIDTH - PLAYER_SCALED_SIZE || player.state.y >= WINDOW_HEIGHT - PLAYER_SCALED_SIZE) {
+              players.splice(index, 1);
+            } else {
+              this.updateBot(player, deltat);
+            }
+          }.bind(this));
+        },
+
+        updateComputerState: function(deltat) {
+          Object.entries(this.computers).forEach(function([name, computer], index){
+            if (computer.state.x !== WINDOW_WIDTH/6*(index+1) || computer.state.y !== WINDOW_HEIGHT/6) {
+              computer.state.x = WINDOW_WIDTH/6*(index+1);
+              computer.state.y = WINDOW_HEIGHT/6;
+            }
+          }.bind(this));
+        },
+
+        playerCanMoveHere: function(newPos) {
+          return newPos.x >= 0 && newPos.x <= WINDOW_WIDTH-PLAYER_SCALED_SIZE && newPos.y >= 0 && newPos.y <= WINDOW_HEIGHT-PLAYER_SCALED_SIZE;
+        },
+
+        isComputerCollision: function(newPos) {
+          var collision;
+          Object.entries(this.computers).forEach( ([pageName,computer]) => {
+            if (newPos.x + 16 < computer.state.x + computer.width &&
+                newPos.x + 64 > computer.state.x &&
+                newPos.y + 30 < computer.state.y+computer.height &&
+                newPos.y + 40 > computer.state.y) {
+                collision = pageName;
+            }
           });
-        },
-      
-
-        updateSimulationState: function(deltat) {
-
+          return collision;
         },
 
-        spawn: function() {
-          this.spawnPlayer();
+        isComputerClick: function(newPos) {
+          var collision;
+          Object.entries(this.computers).forEach( ([pageName,computer]) => {
+            if (newPos.x < computer.state.x + computer.width &&
+                newPos.x > computer.state.x &&
+                newPos.y < computer.state.y+computer.height &&
+                newPos.y > computer.state.y) {
+                collision = pageName;
+            }
+          });
+          return collision;
+        },
+
+        updateWorldState: function(deltat) {
+          this.updateComputerState(deltat);
         },
 
         spawnPlayer: function(xDimension, yDimension) {
           if(this.player != null){
-            var newPlayer = Player.create(Utility.getRandomInt(0, CANVAS_WIDTH), Utility.getRandomInt(0, CANVAS_HEIGHT), Utility.getRandomInt(-1, 1));
+            var spawnX = Utility.getRandomInt(0, WINDOW_WIDTH-PLAYER_SCALED_SIZE), spawnY = Utility.getRandomInt(0, WINDOW_HEIGHT-PLAYER_SCALED_SIZE);
+            var newPlayer = Player.create(spawnX, spawnY, 0);
+            newPlayer.player1 = false;
+            newPlayer.line = new Array();
+            newPlayer.line.push({x: spawnX, y: spawnY});
             this.players.push(newPlayer);
           }
         },
 
-        grazePlayers: function() {
-          if(this.player != null) {
-            this.players.forEach(function(player){
-              switch(Utility.getRandomInt(1,5)) {
-                case 1:
-                  player.setSpeedX(Utility.getRandomInt(-PLAYER_SPEED, PLAYER_SPEED));
-                  player.setSpeedY(0);
-                  break;
-                case 2:
-                  player.idle();
-                  break;
-                case 3:
-                  player.setSpeedX(0);
-                  player.setSpeedY(Utility.getRandomInt(-PLAYER_SPEED, PLAYER_SPEED));
-                  break;
-              }
-            });
-          }
-        },
-
-        updateSimulation: function(deltat) {
-          this.updateSimulationState(deltat);
+        updateWorld: function(deltat) {
           this.updateAllPlayers(deltat);
+          this.updateWorldState(deltat);
         }
       }
 
       const Controller =  {
-        bg_img: new Image(),
         playerUpImg: new Image(),
         playerDownImg: new Image(),
         playerLeftImg: new Image(),
         playerRightImg: new Image(),
         playerIdleImg: new Image(),
+        playermarkerImg: new Image(),
+        defaultBodyImg: new Image(),
+        webdudeHeadImg: new Image(),
+        obamaHeadImg: new Image(),
+        shadowImg: new Image(),
+        obamaNeckImg: new Image(),
+        obamaBodyImg: new Image(),
+        lildrawvidSpritesheet: new Image(),
+        drawvidBodyImg: new Image(),
+        drawvidNeckImg: new Image(),
+        drawvidHeadImg: new Image(),
+        computerImg: new Image(),
+        homeImg: new Image(),
+        aboutImg: new Image(),
+        codeImg: new Image(),
+        artImg: new Image(),
+        markerFrame: 0,
+        computerScreenImg: new Image(),
+        twitterImage: {
+          img: new Image(),
+        },
+        instaImage: {
+          img: new Image(),
+        },
+        lemmingLogo: {
+          img: new Image(),
+        },
         KeyState: {
           key: [0,0,0,0],
           changeKey: function(which, to) {
             switch (which) {
               case KEY_CODES.a: // a/arrowleft left
               case KEY_CODES.arrowleft:
-                this.key[0] = to;
+                this.key[PLAYER_ACTION.left] = to;
                 break;
               case KEY_CODES.d: // d/arrowright right
               case KEY_CODES.arrowright:
-                this.key[1] = to;
+                this.key[PLAYER_ACTION.right] = to;
                 break;
               case KEY_CODES.w: // w up
-                this.key[2] = to;
+                this.key[PLAYER_ACTION.up] = to;
                 break;
               case KEY_CODES.s: // s down
-                this.key[3] = to;
+                this.key[PLAYER_ACTION.down] = to;
                 break;
             }
           },
           keyFromAngleAndLocation(angle, x, y) {
-            if (y <= PLAYER_HOME_Y) { //loc above ground jump
-              this.key[2] = 1
-            }
-            if (angle < 90 && angle > -90) { //loc right side right
-                this.key[1] = 1;
-            } else { //loc left side left
-              this.key[0] = 1;
-            }
+            if (angle > -45 && angle <= 45) { // right
+                this.key[PLAYER_ACTION.right] = 1;
+                console.log("right");
+              } else if (angle > 45 && angle <= 135) { //down
+                this.key[PLAYER_ACTION.down] = 1;
+                console.log("down");
+              } else if ( (angle > 135 && angle <= 180) || (angle >= -180 && angle < -135) ) { //left
+                this.key[PLAYER_ACTION.left] = 1;
+                console.log("left");
+              } else if (angle <= -45 && angle >= -135) { //up
+                this.key[PLAYER_ACTION.up] = 1;
+                console.log("up");
+              }
           },
           clearKeys() {
             for(i=0; i< this.key.length; i++) {
@@ -341,134 +450,286 @@
         getTouchPos: function(touchEvent) {
           var rect = this.canvas.getBoundingClientRect();
           return {
-            x: (touchEvent.touches[0].clientX - rect.left) * CANVAS_WIDTH/rect.width,
-            y: (touchEvent.touches[0].clientY - rect.top) * CANVAS_HEIGHT/rect.height
+            x: (touchEvent.touches[0].clientX - rect.left) * WINDOW_WIDTH/rect.width,
+            y: (touchEvent.touches[0].clientY - rect.top) * WINDOW_HEIGHT/rect.height
           };
         },
 
         create: function() {
           var view = Object.create(this);
           view.world = DrawvidWorld.create();
-          view.canvas = DOCUMENT.createElement("canvas");
-          view.canvas.id = "drawvidWorld-canvas";
-          view.context = view.canvas.getContext("2d");
+          view.canvas = document.getElementById("drawvidWorld-canvas");
           view.canvas.width = WINDOW_WIDTH;
           view.canvas.height = WINDOW_HEIGHT;
-          CANVAS_WIDTH = view.canvas.width;
-          CANVAS_HEIGHT = view.canvas.height;
-          DOCUMENT.body.appendChild(view.canvas);
-          view.context.imageSmoothingEnabled = false;
-          var assets = "assets/";
-          //view.bg_img.src = assets + "bg.png";
-          view.playerUpImg.src = assets + "lildrawvid_up.png";
-          view.playerDownImg.src = assets + "lildrawvid_down.png";
-          view.playerLeftImg.src = assets + "lildrawvid_left.png";
-          view.playerRightImg.src = assets + "lildrawvid_right.png";
-          view.playerIdleImg.src = assets + "lildrawvid.png";
-          view.curr_timestamp = Utility.getTimestamp();
-          view.graze_delay = Utility.getRandomInt(1, 5);
-          view.spawn_delay = 3;
+          view.ctx = view.canvas.getContext("2d");
+          view.ctx.imageSmoothingEnabled = false;
+          view.playerUpImg.src = "assets/lildrawvid_up.png";
+          view.playerDownImg.src = "assets/lildrawvid_down.png";
+          view.playerLeftImg.src = "assets/lildrawvid_left.png";
+          view.playerRightImg.src = "assets/lildrawvid_right.png";
+          view.playerIdleImg.src = "assets/lildrawvid.png";
+          view.playermarkerImg.src = "assets/playermarker.png";
+          view.defaultBodyImg.src = "assets/default_body_new.png";
+          view.webdudeHeadImg.src = "assets/webdude_head.png";
+          view.obamaHeadImg.src = "assets/obama_head.png";
+          view.lildrawvidSpritesheet.src = "assets/lildrawvid_spritesheet.png";
+          view.obamaNeckImg.src = "assets/obama_neck.png";
+          view.obamaBodyImg.src = "assets/obama_suit.png";
+          view.shadowImg.src = "assets/shadow.png";
+          view.drawvidBodyImg.src = "assets/drawvid_body.png";
+          view.drawvidHeadImg.src = "assets/drawvid_head.png";
+          view.drawvidNeckImg.src = "assets/drawvid_neck.png";
+          view.computerImg.src = "assets/computer.png";
+          view.homeImg.src = "assets/home.png";
+          view.artImg.src = "assets/art.png";
+          view.aboutImg.src = "assets/about.png";
+          view.codeImg.src = "assets/code.png";
+          view.computerScreenImg.src = "assets/computer_big.png";
+          view.twitterImage.img.src = "assets/twitter_icon.png";
+          view.instaImage.img.src = "assets/insta_icon.png";
+          view.lemmingLogo.img.src = "assets/lemming_logo.png";
+          view.currTimestamp = Utility.getTimestamp();
+          view.grazeDelay = Utility.getRandomInt(1, 5);
+          view.spawnDelay = 3;
+          view.artDisplayed = false;
           view.start();
           return view;
         },
 
         handleInput: function() {
-          if(this.KeyState.key[0] || this.KeyState.key[1] || this.KeyState.key[2] || this.KeyState.key[3]) {
-            if(this.KeyState.key[0] && this.world.player.state.vx >= 0){ // left
-              this.world.player.setSpeedX(-PLAYER_SPEED);
-              this.world.player.setSpeedY(0);
+          if(this.KeyState.key[PLAYER_ACTION.left] || this.KeyState.key[PLAYER_ACTION.right] || this.KeyState.key[PLAYER_ACTION.up] || this.KeyState.key[PLAYER_ACTION.down]) {
+            if(this.KeyState.key[PLAYER_ACTION.left] && this.world.player.state.vx >= 0){ // left
+              this.world.player.setSpeeds(-PLAYER_SPEED, 0);
               console.log("left");
             }
-            if(this.KeyState.key[1] && this.world.player.state.vx <= 0){ // right
-              this.world.player.setSpeedX(PLAYER_SPEED);
-              this.world.player.setSpeedY(0);
+            if(this.KeyState.key[PLAYER_ACTION.right] && this.world.player.state.vx <= 0){ // right
+              this.world.player.setSpeeds(PLAYER_SPEED, 0);
               console.log("right");
             }
-            if(this.KeyState.key[2] && this.world.player.state.vy >= 0){ // up
-              this.world.player.setSpeedX(0);
-              this.world.player.setSpeedY(-PLAYER_SPEED);
+            if(this.KeyState.key[PLAYER_ACTION.up] && this.world.player.state.vy >= 0){ // up
+              this.world.player.setSpeeds(0, -PLAYER_SPEED);
               console.log("up");
             }
-            if(this.KeyState.key[3] && this.world.player.state.vy <= 0){ // down
-              this.world.player.setSpeedX(0);
-              this.world.player.setSpeedY(PLAYER_SPEED);
+            if(this.KeyState.key[PLAYER_ACTION.down] && this.world.player.state.vy <= 0){ // down
+              this.world.player.setSpeeds(0, PLAYER_SPEED);
               console.log("down");
             }
           }
         },
 
+        handleClick: function(e) {
+          var x = e.clientX, y = e.clientY;
+          if (this.world.currentScreen) {
+            switch (this.world.currentScreen) {
+              case PAGE_NAME.about:
+                if (x >= this.twitterImage.x && x <= this.twitterImage.x + this.twitterImage.size*this.twitterImage.scale &&
+                y >= this.twitterImage.y && y <= this.twitterImage.y + this.twitterImage.size*this.twitterImage.scale) {
+                  window.location.href = "https://twitter.com/drawvid";
+                }
+                if (x >= this.instaImage.x && x <= this.instaImage.x + this.instaImage.size*this.instaImage.scale &&
+                y >= this.instaImage.y && y <= this.instaImage.y + this.instaImage.size*this.instaImage.scale) {
+                  window.location.href = "https://instagram.com/drawvid";
+                }
+                break;
+              case PAGE_NAME.code:
+                if (x >= this.lemmingLogo.x && x <= this.lemmingLogo.x + this.lemmingLogo.sizeX*this.lemmingLogo.scale &&
+                y >= this.lemmingLogo.y && y <= this.lemmingLogo.y + this.lemmingLogo.sizeY*this.lemmingLogo.scale) {
+                  window.location.href = "/lemming-simulator";
+                }
+                break;
+            }
+          }
+          this.world.currentScreen = this.world.isComputerClick({x, y});
+        },
+
         handleKeyup: function(keyCode) {
           if(keyCode === KEY_CODES.a || keyCode === KEY_CODES.arrowleft || keyCode === KEY_CODES.d || keyCode === KEY_CODES.arrowright || keyCode === KEY_CODES.w || keyCode === KEY_CODES.s) {
-            this.world.player.setSpeedX(0);
-            this.world.player.setSpeedY(0);
-            this.world.player.idle();
+            this.world.player.setSpeeds(0, 0);
+            this.world.player.chill();
           }
         },
         handleTouchend: function() {
-          this.world.player.setSpeedX(0);
-          this.world.player.setSpeedY(0);
-          this.world.player.idle();
+          this.world.player.setSpeeds(0, 0);
+          this.world.player.chill();
         },
 
-        renderWorld: function() {
-          this.context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-          this.drawBg();
-          this.drawPlayers();
+        renderWorld: function(deltat) {
+          this.ctx.clearRect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+          this.drawBots(deltat);
+          this.drawAllComputers();
+          this.drawText("drawvid.com", WINDOW_WIDTH/2, WINDOW_HEIGHT/2, 40, 'black');
+          this.drawText("(software update in progress)", WINDOW_WIDTH/2, WINDOW_HEIGHT/2 + 25, 15, 'black');
+          this.drawPlayer();
+          this.renderPopUp();
         },
 
-        drawBg: function() {
-          //this.context.drawImage(this.bg_img, this.world.bg.x, this.world.bg.y);
+        renderPopUp: function() {
+          this.drawComputerScreen()
         },
 
-        drawText: function(txt, x, y, size) {
-          this.context.font = size + 'px sans-serif';
-          this.context.font.style = "bold";
-          this.context.fillText(txt, x, y);
+        drawText: function(txt, x, y, size, color) {
+          this.ctx.textBaseline = 'middle';
+          this.ctx.textAlign = "center";
+          this.ctx.fillStyle = color;
+          this.ctx.font = size + 'px sans-serif';
+          this.ctx.font.style = "bold";
+          this.ctx.fillText(txt, x, y);
         },
 
-        drawPlayer: function(player) {
-          var img;
-          switch(player.state.action) {
-            case PLAYER_ACTION.left:
-              img = this.playerLeftImg;
+        drawPlayerMarker: function() {
+          this.ctx.drawImage(this.playermarkerImg, this.markerFrame * 16, 0, 16, 16, this.world.player.state.x + 16, this.world.player.state.y - 60, 32, 32);
+        },
+        cyclePlayerMarkerFrame: function() {
+          if(this.markerFrame < 3) {
+            this.markerFrame++;
+          } else {
+            this.markerFrame = 0;
+          }
+        },
+
+        drawDrawvidSprite: function(player) {
+          var frame = !player.idle ? player.frame : 0;
+          var action = !player.idle ? player.state.action : 0;
+          this.ctx.drawImage(this.lildrawvidSpritesheet, frame * PLAYER_SIZE, action * PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE, player.state.x, player.state.y, PLAYER_SCALED_SIZE, PLAYER_SCALED_SIZE);
+        },
+
+        drawDefaultBody: function(player) {
+          if (!player.idle) {
+            this.ctx.drawImage(this.drawvidBodyImg, player.frame * 80, player.state.action * 48, 80, 48, player.state.x, player.state.y, 80, 48);
+          } else {
+            this.ctx.drawImage(this.drawvidBodyImg, 0, player.state.action * 48, 80, 48, player.state.x, player.state.y, 80, 48);
+          }
+        },
+
+        drawHead: function(player) {
+          this.ctx.drawImage(this.webdudeHeadImg, player.state.action * 32, 0, 32, 32, player.state.x + 16, player.state.y-32, 64, 64);
+        },
+
+        drawObamaHead: function(player) {
+          this.ctx.drawImage(this.drawvidHeadImg, player.state.action * 64, 0, 64, 64, player.state.x + 8, player.state.y - 50, 64, 64);
+        },
+
+        drawAsset: function(img, sizeX, sizeY, x, y, scale) {
+          this.ctx.drawImage(img, 0, 0, sizeX, sizeY, x, y, sizeX*scale, sizeY*scale);
+        },
+
+        drawAllComputers: function() {
+          Object.entries(this.world.computers).forEach( ([name, computer]) => {
+            this.drawComputer(name, computer.state.x, computer.state.y);
+          });
+        },
+
+        drawComputer: function(pageName, x, y) {
+          var txtImg;
+          switch (pageName) {
+            case PAGE_NAME.home:
+              txtImg = this.homeImg;
               break;
-            case PLAYER_ACTION.right:
-              img = this.playerRightImg;
-              break; 
-            case PLAYER_ACTION.up:
-              img = this.playerUpImg;
-              break; 
-            case PLAYER_ACTION.down:
-              img = this.playerDownImg;
-              break; 
-            default:
-              img = this.playerIdleImg;
+            case PAGE_NAME.about:
+              txtImg = this.aboutImg;
+              break;
+            case PAGE_NAME.code:
+              txtImg = this.codeImg;
+              break;
+            case PAGE_NAME.art:
+              txtImg = this.artImg;
+              break;
           }
-          this.context.fillStyle = 'green';
-          this.context.beginPath();
-          this.context.ellipse(player.x + 32, player.y + 100, 32, 16, Math.PI / 4, 0, 2 * Math.PI);
-          this.context.fill();
-          this.context.drawImage(img, player.frame * 64, 0, 64, 64, player.state.x, player.state.y, 64, 64);
+          this.drawAsset(this.computerImg, 128, 128, x, y, 1);
+          this.drawAsset(txtImg, 128, 128, x, y, 1);
         },
 
-        drawPlayers: function() {
-          if(this.world.game_over) {
-            this.context.globalAlpha = 0.50;
+        drawComputerScreen: function() {
+          if (this.world.currentScreen) {
+            var x = WINDOW_WIDTH/2 - 512, y = WINDOW_HEIGHT/2 - 384;
+            this.drawAsset(this.computerScreenImg, 512, 384, x, y, 2);
+            //this.drawText(this.world.currentScreen, x+512, y+225, 50, '#ffffff');
+            switch (this.world.currentScreen) {
+              case PAGE_NAME.home:
+                this.drawText("you've connected to drawvid.com", x+512, y+350, 30, '#ffffff');
+                this.drawText("enjoy :-)", x+512, y+400, 30, '#ffffff');
+                break;
+              case PAGE_NAME.about:
+                this.drawText("my name is david.", x+512, y+250, 30, '#ffffff');
+                this.drawText("i like to draw", x+512, y+300, 30, '#ffffff');
+                this.drawText("and build computer programs", x+512, y+350, 30, '#ffffff');
+                this.drawText("@drawvid on twitter and instagram:", x+512, y+400, 30, '#ffffff');
+                this.twitterImage = {
+                  img: this.twitterImage.img,
+                  x: x + 400,
+                  y: y + 450,
+                  size: 32, 
+                  scale: 3
+                }
+                this.drawAsset(this.twitterImage.img, this.twitterImage.size, this.twitterImage.size, this.twitterImage.x, this.twitterImage.y, this.twitterImage.scale);
+                this.instaImage = {
+                  img: this.instaImage.img,
+                  x: x + 525,
+                  y: y + 450,
+                  size: 32, 
+                  scale: 3
+                }
+                this.drawAsset(this.instaImage.img, this.instaImage.size, this.instaImage.size, this.instaImage.x, this.instaImage.y, this.instaImage.scale);
+                break;
+              case PAGE_NAME.art:
+                if (!this.artDisplayed) {
+                  viewAlbum("png");
+                  this.artDisplayed = true;
+                }
+                break;
+              case PAGE_NAME.code: 
+                this.lemmingLogo = {
+                  img: this.lemmingLogo.img,
+                  x: x + 300,
+                  y: y + 300,
+                  sizeX: 210,
+                  sizeY: 88,
+                  scale: 2
+                }
+                this.drawAsset(this.lemmingLogo.img, this.lemmingLogo.sizeX, this.lemmingLogo.sizeY, this.lemmingLogo.x, this.lemmingLogo.y, this.lemmingLogo.scale);
+            }
+          } else {
+            this.artDisplayed = false;
           }
+        },
+
+        drawPlayer: function() {
           if(this.world.player != null) {
-            this.drawPlayer(this.world.player);
+            this.ctx.globalAlpha = 0.75;
+            this.drawAsset(this.shadowImg, 64, 32, this.world.player.state.x + 8, this.world.player.state.y + 28, 1);
+            this.ctx.globalAlpha = 1;
+            this.drawAsset(this.drawvidNeckImg, 48, 32, this.world.player.state.x + 16, this.world.player.state.y - 10, 1);
+            this.drawDefaultBody(this.world.player);
+            this.drawObamaHead(this.world.player);
+            //this.drawPlayerMarker();
           }
+        },
+
+        drawBots: function(deltat) {
           this.world.players.forEach( function(player) {
-            this.drawPlayer(player);
+            this.ctx.globalAlpha = 0.75;
+            this.drawAsset(this.shadowImg, 64, 32, player.state.x + 34, player.state.y + 110, 1);
+            this.drawBotLine(player);
+            this.ctx.globalAlpha = 1;
+            this.drawDrawvidSprite(player);
           }.bind(this));
-          if(this.world.game_over) {
-            this.context.globalAlpha = 1.0;
-          }
+        },
+
+        drawBotLine: function(player) {
+          this.ctx.beginPath();
+          player.line.forEach( (pos, index) => {
+            if (index > 0) {
+              this.ctx.moveTo(player.line[index-1].x + 64, player.line[index-1].y);
+              this.ctx.lineTo(player.line[index].x + 64, player.line[index].y);
+              this.ctx.stroke();
+            }
+          });
         },
 
         animateWorld: function() {
           if (this.world.player != null) {
             this.world.player.cycleAnimationFrame();
+            this.cyclePlayerMarkerFrame();
           }
           this.world.players.forEach(function(player) {
             player.cycleAnimationFrame();
@@ -476,54 +737,38 @@
         },
 
         step: function() {
-          this.prev_timestamp = this.curr_timestamp;
-          this.curr_timestamp = Utility.getTimestamp();
+          this.prevTimestamp = this.currTimestamp;
+          this.currTimestamp = Utility.getTimestamp();
 
           // SIMULATE //
           if(!!this.world.player) {
             this.handleInput();
           }
-          var deltat = this.curr_timestamp - this.prev_timestamp;
-          this.world.updateSimulation(deltat);
+          var deltat = this.currTimestamp - this.prevTimestamp;
+          this.totalTimeElapsed+=deltat;
+          this.world.updateWorld(deltat);
 
-          var spawn_deltat = this.curr_timestamp - this.last_spawn_timestamp;
-          if(spawn_deltat > this.spawn_delay) {
-            this.world.spawn();
-            // SPAWN DELAY FUNCTION
-            var totalTime = this.curr_timestamp - this.start_timestamp;
-            var maxDelay = parseInt( (6 / (1 + 5 * Math.exp(-(1/15)*(totalTime)))) , 10);
-            var minDelay = parseInt(totalTime/180, 10) + 1;
-            if(minDelay > 4) {
-              minDelay = 4;
+          var spawnDeltaT = this.currTimestamp - this.lastSpawnTimestamp;
+          if(spawnDeltaT > this.spawnDelay) {
+            if (this.world.players.length <= 2) {
+              //this.world.spawnPlayer();
             }
-            this.spawn_delay = Utility.getRandomInt(minDelay, maxDelay);
-            //console.log(this.curr_timestamp - this.start_timestamp, this.spawn_delay);
-            //console.log("new delay: " + this.spawn_delay +  " min: " + minDelay + " max: " + maxDelay);
-            this.last_spawn_timestamp = Utility.getTimestamp();
-          }
-          var graze_deltat = this.curr_timestamp - this.last_graze_timestamp;
-          if(graze_deltat > this.graze_delay){
-            this.world.grazePlayers();
-            this.graze_delay = Utility.getRandomInt(1,5);
-            this.last_graze_timestamp = Utility.getTimestamp();
-          }
-          // GAME OVER STATE //
-          if(this.world.game_over) {
-
+            this.spawnDelay = Utility.getRandomInt(1, 3);
+            this.lastSpawnTimestamp = Utility.getTimestamp();
           }
 
           // RENDER //
-          var render_deltat = Utility.getTimestamp() - this.last_render_timestamp;
-          if(render_deltat > RENDER_DELAY) {
-            this.renderWorld();
-            this.last_render_timestamp = Utility.getTimestamp();
+          var renderDeltaT = Utility.getTimestamp() - this.lastRenderTimestamp;
+          if(renderDeltaT > RENDER_DELAY) {
+            this.renderWorld(renderDeltaT);
+            this.lastRenderTimestamp = Utility.getTimestamp();
           }
 
           // ANIMATE //
-          var animation_frame_deltat = Utility.getTimestamp() - this.last_animation_frame_timestamp;
-          if(animation_frame_deltat > ANIMATION_DELAY) {
+          var animationFrameDeltaT = Utility.getTimestamp() - this.lastAnimationFrameTimestamp;
+          if(animationFrameDeltaT > ANIMATION_DELAY) {
             this.animateWorld();
-            this.last_animation_frame_timestamp = Utility.getTimestamp();
+            this.lastAnimationFrameTimestamp = Utility.getTimestamp();
           }
           
           window.requestAnimationFrame(function() {
@@ -533,13 +778,14 @@
 
         initSimulationLoop: function() {
           var timestamp = Utility.getTimestamp();
-          this.last_render_timestamp = timestamp;
-          this.last_animation_frame_timestamp = timestamp;
-          this.last_graze_timestamp = timestamp;
-          this.last_spawn_timestamp = timestamp;
+          this.lastRenderTimestamp = timestamp;
+          this.lastAnimationFrameTimestamp = timestamp;
+          this.lastGrazeTimestamp = timestamp;
+          this.lastSpawnTimestamp = timestamp;
+          this.totalTimeElapsed = 0;
           window.addEventListener('keydown', function(e) {
             this.KeyState.changeKey(e.keyCode, 1);
-            if(this.world.game_over && e.keyCode === KEY_CODES.space) {
+            if(this.world.gameOver && e.keyCode === KEY_CODES.space) {
               this.restart();
             }
           }.bind(this));
@@ -550,27 +796,12 @@
           if (IS_MOBILE) {
             window.addEventListener('touchstart', function(e) {
               var touch = this.getTouchPos(e);
-              if (touch.x < 0) {
-                touch.x = 0;
-              }
-              if (touch.y > CANVAS_HEIGHT) {
-                touch.y = CANVAS_HEIGHT;
-              }
-              if(this.world.game_over) {
-                this.restart();
-              }
               var angle = Utility.getAngle(this.world.player.state.x + 16, this.world.player.state.y + 16, touch.x, touch.y);
               this.KeyState.keyFromAngleAndLocation(angle, touch.x, touch.y)
             }.bind(this), false);
             window.addEventListener('touchmove', function(e) {
               preventDefault(e);
               var touch = this.getTouchPos(e);
-              if (touch.x < 0) {
-                touch.x = 0;
-              }
-              if (touch.y > CANVAS_HEIGHT) {
-                touch.y = CANVAS_HEIGHT;
-              }
               this.KeyState.clearKeys();
               var angle = Utility.getAngle(this.world.player.state.x + 16, this.world.player.state.y + 16, touch.x, touch.y);
               this.KeyState.keyFromAngleAndLocation(angle, touch.x, touch.y)
@@ -585,6 +816,11 @@
           }.bind(this));
         },
 
+        subscribeClickHandler: function() {
+          var canvas = document.getElementById('canvas-container');
+          canvas.addEventListener('click', (e) => this.handleClick(e));
+        },
+
         start: function() {
           this.start_timestamp = Utility.getTimestamp();
           this.initSimulationLoop();
@@ -592,16 +828,64 @@
 
         restart: function() {
           this.world = DrawvidWorld.create();
-          this.world.player = Player.create(Utility.getRandomInt(0, CANVAS_WIDTH), Utility.getRandomInt(0, CANVAS_HEIGHT), -1);
+          this.world.player = Player.create(WINDOW_WIDTH/2,WINDOW_HEIGHT/2, 0);
+          this.world.player.player1 = true;
           this.initSimulationLoop();
         }
       };
 
       var controller = Controller.create();
+      controller.subscribeClickHandler();
       window.addEventListener('resize', function(e){
-        controller.context.imageSmoothingEnabled = false;
+        controller.ctx.imageSmoothingEnabled = false;
         Utility.resize();
       }, false);
+
+      function instagramLink() {
+        window.location.href = 'https://instagram.com/drawvid';
+      };
+      function twitterLink() {
+        window.location.href = 'https://twitter.com/drawvid';
+      };
+
+      // Show the photos that exist in an album.
+      function viewAlbum(albumName) {
+        console.log(albumName);
+        var albumPhotosKey = encodeURIComponent(albumName) + '/';
+        s3.listObjects({Prefix: albumPhotosKey}, function(err, data) {
+          if (err) {
+            return alert('There was an error viewing your album: ' + err.message);
+          }
+          // 'this' references the AWS.Response instance that represents the response
+          var href = this.request.httpRequest.endpoint.href;
+          var bucketUrl = href + albumBucketName + '/';
+
+          var photos = data.Contents.map(function(photo) {
+            var photoKey = photo.Key;
+            var photoUrl = bucketUrl + encodeURIComponent(photoKey);
+            return getHtml([
+              '<span>',
+                '<div>',
+                  '<br/>',
+                  '<img style="display:relative;height:256px;margin:auto" src="' + photoUrl + '"/>',
+                '</div>',
+                '<div>',
+                  '<span>',
+                    photoKey.replace(albumPhotosKey, ''),
+                  '</span>',
+                '</div>',
+              '</span>',
+            ]);
+          });
+          var htmlTemplate = [
+            '<div>',
+              getHtml(photos),
+            '</div>',
+          ]
+          document.getElementById('image-container').innerHTML = getHtml(htmlTemplate);
+          document.getElementsByTagName('img')[0].setAttribute('style', 'display:none;');
+        });
+      }
     </script>
   </body>
 </html>
