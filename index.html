@@ -37,11 +37,23 @@
       }
       #image-container {
         position: relative;
-        height: 75%;
+        height: 50vh;
         width: 50%;
-        margin: auto;
+        margin: 0 auto;
+        margin-top: 20vh;
         z-index: 2;
         overflow-y: scroll;
+        overflow-x: hidden;
+        background: black;
+        display: none;
+      }
+      #gallery-list {
+        width: 100%;
+        margin: auto;
+      }
+      .gallery-img {
+        width: 90%;
+        margin: auto;
       }
     </style>
     <link rel='icon', href='/assets/favicon.ico'>
@@ -84,7 +96,11 @@
           </marquee>
           </div>
         </div>
-        <div id="image-container"></div>
+        <div id="image-container">
+          <ul id="gallery-list">
+            <h>loading images...</h>
+          </ul>
+        </div>
     </div>
     <script>
       var WINDOW_WIDTH = window.innerWidth;
@@ -100,6 +116,15 @@
       const PLAYER_ACTION = {right: 1, down: 0, left: 3, up: 2}
       const KEY_CODES = {w: 87,a: 65,s: 83,d: 68,space: 32,arrowleft: 37,arrowright: 39}
       const PAGE_NAME = { home: "home", about: "about", code: "code", art: "art"}
+      const pswpElement = document.querySelectorAll('.pswp')[0];
+      var art = [];
+      var galleryItems = new Array();
+      const gallery = document.getElementById("gallery-list");
+      const imageContainer = document.getElementById("image-container");
+      var galleryLoaded = false;
+      var WindowHandle = null;
+      
+      loadArtImages();
 
       var IS_MOBILE;
       if(/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|ipad|iris|kindle|Android|Silk|lge |maemo|midp|mmp|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows (ce|phone)|xda|xiino/i.test(navigator.userAgent) 
@@ -673,7 +698,7 @@
                 break;
               case PAGE_NAME.art:
                 if (!this.artDisplayed) {
-                  viewAlbum("png");
+                  viewGallery();
                   this.artDisplayed = true;
                 }
                 break;
@@ -689,7 +714,10 @@
                 this.drawAsset(this.lemmingLogo.img, this.lemmingLogo.sizeX, this.lemmingLogo.sizeY, this.lemmingLogo.x, this.lemmingLogo.y, this.lemmingLogo.scale);
             }
           } else {
-            this.artDisplayed = false;
+            if (!WindowHandle || (!!WindowHandle && WindowHandle.closed)) {
+              this.artDisplayed = false;
+              imageContainer.style.display = "none";
+            }
           }
         },
 
@@ -848,10 +876,8 @@
         window.location.href = 'https://twitter.com/drawvid';
       };
 
-      // Show the photos that exist in an album.
-      function viewAlbum(albumName) {
-        console.log(albumName);
-        var albumPhotosKey = encodeURIComponent(albumName) + '/';
+      async function loadArtImages() {
+        var albumPhotosKey = encodeURIComponent("png") + '/';
         s3.listObjects({Prefix: albumPhotosKey}, function(err, data) {
           if (err) {
             return alert('There was an error viewing your album: ' + err.message);
@@ -860,31 +886,56 @@
           var href = this.request.httpRequest.endpoint.href;
           var bucketUrl = href + albumBucketName + '/';
 
-          var photos = data.Contents.map(function(photo) {
+          art = data.Contents.forEach(function(photo) {
             var photoKey = photo.Key;
             var photoUrl = bucketUrl + encodeURIComponent(photoKey);
-            return getHtml([
-              '<span>',
-                '<div>',
-                  '<br/>',
-                  '<img style="display:relative;height:256px;margin:auto" src="' + photoUrl + '"/>',
-                '</div>',
-                '<div>',
-                  '<span>',
-                    photoKey.replace(albumPhotosKey, ''),
-                  '</span>',
-                '</div>',
-              '</span>',
-            ]);
+            var image = new Image();
+            image.src = photoUrl;
+            image.onload = function() {
+              galleryItems.push({
+                img: image,
+                src: this.src,
+                w: this.width,
+                h: this.height,
+                title: photoKey
+              });
+              if (galleryItems.length >= data.Contents.length-1) {
+                console.log("all images loaded");
+                galleryLoaded = true;
+              }
+            }
           });
-          var htmlTemplate = [
-            '<div>',
-              getHtml(photos),
-            '</div>',
-          ]
-          document.getElementById('image-container').innerHTML = getHtml(htmlTemplate);
-          document.getElementsByTagName('img')[0].setAttribute('style', 'display:none;');
         });
+      }
+
+      function shuffleGallery() {
+        shuffleArray(galleryItems);
+        gallery.innerHTML = "";
+        galleryItems.forEach( (image) => {
+          const galleryItemDiv = document.createElement("li");
+          galleryItemDiv.className = "gallery-item";
+          image.img.className = "gallery-img";
+          image.img.onclick = function() {
+            console.log("follow image link");
+            // window.location.href = image.img.src;
+            WindowHandle = window.open(image.img.src, '_blank');
+          }
+          galleryItemDiv.appendChild(image.img);
+          gallery.appendChild(galleryItemDiv);
+        })
+      }
+
+      function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [array[i], array[j]] = [array[j], array[i]];
+        }
+      }
+
+      function viewGallery() {
+        console.log("view Gallery");
+        shuffleGallery();
+        imageContainer.style.display = "block";
       }
     </script>
   </body>
